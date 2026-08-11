@@ -51,6 +51,7 @@ const loadConversations = async () => {
 
   try {
     const response = await chatApi.getConversations()
+    console.log(response.data);
     conversations.value = response.data
   } catch (error) {
     console.error('Failed to load conversations', error)
