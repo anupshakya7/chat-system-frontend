@@ -1,9 +1,10 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
 
 import chatApi from '../api/chat'
 import authApi from '../api/auth'
+import echo from '../services/echo';
 
 const router = useRouter()
 
@@ -16,6 +17,8 @@ const showUsers = ref(false)
 const users = ref([])
 const userSearch = ref('')
 const usersLoading = ref(false)
+
+const subscriptions = new Map();
 
 const getCurrentUser = () => {
   const storedUser = localStorage.getItem('user');
@@ -51,8 +54,9 @@ const loadConversations = async () => {
 
   try {
     const response = await chatApi.getConversations()
-    console.log(response.data);
     conversations.value = response.data
+
+    subscribeToAllConversations();
   } catch (error) {
     console.error('Failed to load conversations', error)
   } finally {
@@ -60,16 +64,61 @@ const loadConversations = async () => {
   }
 }
 
+const subscribeToAllConversations = () => {
+  if(!conversations.value.length) return;
+
+  conversations.value.forEach(conversation => {
+    subscribeToConversation(conversation.id)
+  });
+}
+
+const subscribeToConversation = (conversationId) => {
+  if(subscriptions.has(conversationId)) return;
+
+  console.log(`Subscribing to conversation ${conversationId} for chat list`);
+  const channel = echo.private(`conversation.${conversationId}`);
+  channel.listen('.MessageSent', (event) => {
+      console.log(`New message in conversation ${conversationId}:`, event);
+      updateConversationLastMessage(conversationId, event.message || event);
+  });
+  subscriptions.set(conversationId, channel);
+}
+
+const updateConversationLastMessage = (conversationId, message) => {
+  const index = conversations.value.findIndex(c => c.id === conversationId);
+
+  if(index === -1) return;
+
+  const updatedConversation = {
+    ...conversations.value[index],
+    last_message: message,
+    updated_at: message.created_at || new Date().toISOString()
+  }
+
+  conversations.value.splice(index, 1);
+  conversations.value.unshift(updatedConversation);
+}
+
+const unsubscribeFromAllConversations = () => {
+  for(const [conversationId, channel] of subscriptions){
+    echo.leave(`conversation.${conversationId}`);
+    subscriptions.delete(conversationId);
+  }
+}
+
 const startChat = async user => {
   try {
     const response = await chatApi.createConversation(user.id)
     const conversation = response.conversation
+    console.log('conversation: ',conversation);
     showUsers.value = false
 
     const exists = conversations.value.some(item => item.id === conversation.id);
     if (!exists) {
       conversations.value.unshift(conversation)
+      subscribeToConversation(conversation.id)
     }
+    console.log('New Conversation: ',conversations.value);
     emit('select', conversation)
   } catch (error) {
     console.error('Failed to create conversation', error)
@@ -90,6 +139,7 @@ const logout = async () => {
   } finally {
     localStorage.removeItem('token')
     localStorage.removeItem('user')
+    unsubscribeFromAllConversations()
 
     router.push('/login')
   }
@@ -97,6 +147,10 @@ const logout = async () => {
 
 onMounted(() => {
   loadConversations()
+})
+
+onBeforeUnmount(() => {
+  unsubscribeFromAllConversations()
 })
 </script>
 <template>
@@ -136,16 +190,19 @@ onMounted(() => {
       @click="selectConversation(conversation)"
     >
       <div class="avatar">
-        {{ conversation.users?.[0]?.name?.charAt(0)?.toUpperCase() || '?' }}
+        {{ conversation.display_name?.charAt(0)?.toUpperCase() || '?' }}
       </div>
 
       <div class="conversation-info">
         <strong>
-          {{ conversation.users?.[0]?.name || 'Unknown' }}
+          {{ conversation.display_name || 'Unknown' }}
         </strong>
         <p>
-          {{ conversation.latest_message?.message || 'No Messages' }}
+          {{ conversation.last_message?.text || 'No Messages' }}
         </p>
+        <small v-if="conversation.last_message" class="message-time">
+          {{ new Date(conversation.last_message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
+        </small>
       </div>
     </div>
   </div>

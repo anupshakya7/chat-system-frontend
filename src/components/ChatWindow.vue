@@ -1,648 +1,290 @@
 <script setup>
+import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
 
-import {
-    ref,
-    watch,
-    nextTick,
-    onBeforeUnmount
-} from 'vue';
-
-import echo from '../services/echo';
-import chatApi from '../api/chat';
-
+import echo from '../services/echo'
+import chatApi from '../api/chat'
 
 // --------------------------------------------------
 // Props
 // --------------------------------------------------
 
 const props = defineProps({
-    conversation: {
-        type: Object,
-        required: true
-    }
-});
+  conversation: {
+    type: Object,
+    required: true
+  }
+})
+const emit = defineEmits('conversationRead', 'newMessage');
 
+const messages = ref([])
+const loading = ref(false)
+const newMessage = ref('')
+const messagesContainer = ref(null)
 
-// --------------------------------------------------
-// State
-// --------------------------------------------------
+const unreadCount = ref(props.conversation?.unread_count || 0);
 
-const messages = ref([]);
+const storedUser = localStorage.getItem('user')
+const currentUser = storedUser ? JSON.parse(storedUser) : null
+const currentUserId = currentUser?.id
 
-const loading = ref(false);
-
-const newMessage = ref('');
-
-const messagesContainer = ref(null);
-
-
-// --------------------------------------------------
-// Current User
-// --------------------------------------------------
-
-const storedUser =
-    localStorage.getItem('user');
-
-const currentUser =
-    storedUser
-        ? JSON.parse(storedUser)
-        : null;
-
-const currentUserId =
-    currentUser?.id;
-
-
-// --------------------------------------------------
-// Echo Channel
-// --------------------------------------------------
-
-let currentChannel = null;
-
-let subscribedConversationId = null;
-
-
-// --------------------------------------------------
-// Load Messages
-// --------------------------------------------------
+let currentChannel = null
+let subscribedConversationId = null
 
 const loadMessages = async () => {
+  if (!props.conversation?.id) {
+    return
+  }
 
-    if (!props.conversation?.id) {
-        return;
-    }
+  loading.value = true
 
-    loading.value = true;
+  try {
+    const response = await chatApi.getMessages(props.conversation.id)
+    messages.value = (response.data.data || []).reverse()
 
-    try {
-
-        const response =
-            await chatApi.getMessages(
-                props.conversation.id
-            );
-
-        /*
-         * Depending on your API response:
-         *
-         * {
-         *     success: true,
-         *     messages: [...]
-         * }
-         */
-
-        messages.value =
-            response.messages || [];
-
-        await nextTick();
-
-        scrollToBottom();
-
-    } catch (error) {
-
-        console.error(
-            'Failed to load messages:',
-            error
-        );
-
-    } finally {
-
-        loading.value = false;
-
-    }
-};
-
-
-// --------------------------------------------------
-// Mark Conversation As Read
-// --------------------------------------------------
+    await nextTick()
+    scrollToBottom()
+  } catch (error) {
+    console.error('Failed to load messages:', error)
+  } finally {
+    loading.value = false
+  }
+}
 
 const markConversationAsRead = async () => {
+  if (!props.conversation?.id) {
+    return
+  }
 
-    if (!props.conversation?.id) {
-        return;
-    }
+  if(unreadCount.value === 0){
+    console.log('No unread messages to mar as read');
+    return;
+  }
 
-    try {
+  try {
+    console.log(`Marking conversation ${props.conversation.id} as read...`);
+    const response = await chatApi.markAsRead(props.conversation.id);
+    
+    unreadCount.value = 0;
 
-        await chatApi.markAsRead(
-            props.conversation.id
-        );
-
-    } catch (error) {
-
-        console.error(
-            'Failed to mark conversation as read:',
-            error
-        );
-
-    }
-};
-
-
-// --------------------------------------------------
-// Subscribe To Reverb Channel
-// --------------------------------------------------
+    emit('conversationRead', {
+        conversationId: props.conversation.id,
+        unreadCount: 0
+    });
+    console.log('Conversation marked as read successfully');
+  } catch (error) {
+    console.error('Failed to mark conversation as read:', error)
+  }
+}
 
 const subscribeToConversation = () => {
+  if (!props.conversation?.id) {
+    return
+  }
 
-    if (!props.conversation?.id) {
-        return;
+  const conversationId = props.conversation.id
+
+  console.log('Subscribing to conversation:', conversationId)
+
+  if (subscribedConversationId === conversationId) {
+    return
+  }
+
+  currentChannel = echo.private(`conversation.${conversationId}`)
+
+  subscribedConversationId = conversationId
+
+  currentChannel.listen('.MessageSent', event => {
+    console.log('Realtime message received:', event)
+
+    const incomingMessage = event
+
+    if (!incomingMessage) {
+      return
     }
 
-    const conversationId =
-        props.conversation.id;
+    const alreadyExists = messages.value.some(
+      message => message.id === incomingMessage.id
+    )
 
-
-    console.log(
-        'Subscribing to conversation:',
-        conversationId
-    );
-
-
-    /*
-     * If already subscribed to this conversation,
-     * don't subscribe again.
-     */
-
-    if (
-        subscribedConversationId ===
-        conversationId
-    ) {
-        return;
+    if (alreadyExists) {
+      return
     }
 
+    messages.value.push(incomingMessage)
 
-    /*
-     * Subscribe to:
-     *
-     * private-conversation.{id}
-     *
-     * Echo automatically adds "private-"
-     */
+    if(incomingMessage.sender?.id !== currentUserId){
+        unreadCount.value += 1;
 
-    currentChannel =
-        echo.private(
-            `conversation.${conversationId}`
-        );
+        emit('newMessage', {
+            conversationId: conversationId,
+            message: incomingMessage,
+            unreadCount: unreadCount.value
+        });
+    }
 
-
-    subscribedConversationId =
-        conversationId;
-
-
-    /*
-     * Listen for Laravel broadcast event.
-     *
-     * This assumes your Laravel event uses:
-     *
-     * broadcastAs()
-     * {
-     *     return 'MessageSent';
-     * }
-     */
-
-    currentChannel.listen(
-        '.MessageSent',
-        (event) => {
-
-            console.log(
-                'Realtime message received:',
-                event
-            );
-
-
-            /*
-             * Depending on your event response,
-             * message may be:
-             *
-             * event.message
-             */
-
-            const incomingMessage =
-                event.message;
-
-
-            if (!incomingMessage) {
-                return;
-            }
-
-
-            /*
-             * Prevent duplicate messages.
-             *
-             * This can happen because the sender may
-             * receive the same message from the API
-             * response and Reverb.
-             */
-
-            const alreadyExists =
-                messages.value.some(
-                    message =>
-                        message.id ===
-                        incomingMessage.id
-                );
-
-
-            if (alreadyExists) {
-                return;
-            }
-
-
-            messages.value.push(
-                incomingMessage
-            );
-
-
-            nextTick(() => {
-                scrollToBottom();
-            });
-        }
-    );
-
-
-    /*
-     * Optional Reverb connection events
-     */
-
-    currentChannel.subscribed(() => {
-
-        console.log(
-            `Successfully subscribed to conversation.${conversationId}`
-        );
-
-    });
-
-};
-
+    nextTick(() => {
+      scrollToBottom()
+    })
+  })
+  
+  currentChannel.subscribed(() => {
+    console.log(`Successfully subscribed to conversation.${conversationId}`)
+  })
+}
 
 const unsubscribeFromConversation = () => {
+  if (subscribedConversationId === null) {
+    return
+  }
 
-    if (
-        subscribedConversationId ===
-        null
-    ) {
-        return;
-    }
+  console.log('Leaving conversation:', subscribedConversationId)
 
+  echo.leave(`conversation.${subscribedConversationId}`)
 
-    console.log(
-        'Leaving conversation:',
-        subscribedConversationId
-    );
-
-
-    echo.leave(
-        `conversation.${subscribedConversationId}`
-    );
-
-
-    currentChannel = null;
-
-    subscribedConversationId = null;
-
-};
+  currentChannel = null
+  subscribedConversationId = null
+}
 
 const sendMessage = async () => {
-    const message = newMessage.value.trim();
+  const message = newMessage.value.trim()
 
-    if (!message) {
-        return;
+  if (!message) {
+    return
+  }
+
+  if (!props.conversation?.id) {
+    return
+  }
+
+  try {
+    newMessage.value = ''
+
+    const response = await chatApi.sendMessage(props.conversation.id, message)
+
+    const sentMessage = response.message
+
+    if (sentMessage) {
+      const alreadyExists = messages.value.some(
+        item => item.id === sentMessage.id
+      )
+
+      if (!alreadyExists) {
+        messages.value.push(sentMessage)
+      }
     }
 
-    if (!props.conversation?.id) {
-        return;
-    }
+    await nextTick()
+    scrollToBottom()
+  } catch (error) {
+    console.error('Failed to send message:', error)
 
-    try {
-        newMessage.value = '';
-
-        const response =
-            await chatApi.sendMessage(
-                props.conversation.id,
-                message
-            );
-
-
-        /*
-         * Your Laravel response should be:
-         *
-         * {
-         *     success: true,
-         *     message: {...}
-         * }
-         */
-
-        const sentMessage =
-            response.message;
-
-
-        /*
-         * If Laravel returns the message,
-         * add it locally.
-         *
-         * Reverb will also broadcast it,
-         * but our duplicate check will prevent
-         * adding it twice.
-         */
-
-        if (sentMessage) {
-
-            const alreadyExists =
-                messages.value.some(
-                    item =>
-                        item.id ===
-                        sentMessage.id
-                );
-
-
-            if (!alreadyExists) {
-
-                messages.value.push(
-                    sentMessage
-                );
-
-            }
-
-        }
-
-
-        await nextTick();
-
-        scrollToBottom();
-
-    } catch (error) {
-
-        console.error(
-            'Failed to send message:',
-            error
-        );
-
-
-        /*
-         * Put message back if sending failed.
-         */
-
-        newMessage.value = message;
-
-    }
-
-};
-
-
-// --------------------------------------------------
-// Scroll To Bottom
-// --------------------------------------------------
+    newMessage.value = message
+  }
+}
 
 const scrollToBottom = () => {
+  if (!messagesContainer.value) {
+    return
+  }
 
-    if (!messagesContainer.value) {
-        return;
-    }
-
-
-    messagesContainer.value.scrollTop =
-        messagesContainer.value.scrollHeight;
-
-};
-
-
-// --------------------------------------------------
-// Conversation Changed
-// --------------------------------------------------
+  messagesContainer.value.scrollTop = messagesContainer.value.scrollHeight
+}
 
 watch(
-    () => props.conversation?.id,
+  () => props.conversation?.id,
 
-    async (
-        newConversationId,
-        oldConversationId
-    ) => {
-
-        /*
-         * Ignore if nothing changed.
-         */
-
-        if (
-            newConversationId ===
-            oldConversationId
-        ) {
-            return;
-        }
-
-
-        /*
-         * Leave previous Reverb channel.
-         */
-
-        unsubscribeFromConversation();
-
-
-        /*
-         * Clear old messages immediately.
-         */
-
-        messages.value = [];
-
-
-        if (!newConversationId) {
-            return;
-        }
-
-
-        /*
-         * Load new conversation messages.
-         */
-
-        await loadMessages();
-
-
-        /*
-         * Mark messages as read.
-         */
-
-        await markConversationAsRead();
-
-
-        /*
-         * Subscribe to realtime messages.
-         */
-
-        subscribeToConversation();
-
-    },
-
-    {
-        immediate: true
+  async (newConversationId, oldConversationId) => {
+    if (newConversationId === oldConversationId) {
+      console.log('Same conversation Id, skipping')
+      return
     }
-);
 
+    unsubscribeFromConversation()
+    messages.value = []
 
-// --------------------------------------------------
-// Cleanup
-// --------------------------------------------------
+    if (!newConversationId) {
+      console.log('No conversation selected, exiting...')
+      return
+    }
+
+    await loadMessages()
+    await markConversationAsRead()
+
+    subscribeToConversation()
+  },
+
+  {
+    immediate: true
+  }
+)
 
 onBeforeUnmount(() => {
-
-    unsubscribeFromConversation();
-
-});
-
+  unsubscribeFromConversation()
+})
 </script>
 
-
 <template>
+  <div class="chat-window">
+    <!-- --------------------------------------- -->
+    <!-- Header -->
+    <!-- --------------------------------------- -->
 
-    <div class="chat-window">
+    <div class="chat-header">
+      <div class="avatar">
+        {{ conversation.display_name?.charAt(0)?.toUpperCase() }}
+      </div>
 
-        <!-- --------------------------------------- -->
-        <!-- Header -->
-        <!-- --------------------------------------- -->
-
-        <div class="chat-header">
-
-            <div class="avatar">
-
-                {{
-                    conversation.users?.[0]?.name
-                        ?.charAt(0)
-                        ?.toUpperCase()
-                }}
-
-            </div>
-
-
-            <div>
-
-                <strong>
-
-                    {{
-                        conversation.users?.[0]?.name
-                            || 'Chat'
-                    }}
-
-                </strong>
-
-            </div>
-
-        </div>
-
-
-        <!-- --------------------------------------- -->
-        <!-- Messages -->
-        <!-- --------------------------------------- -->
-
-        <div
-            ref="messagesContainer"
-            class="messages"
-        >
-
-            <!-- Loading -->
-
-            <div
-                v-if="loading"
-                class="loading"
-            >
-                Loading messages...
-            </div>
-
-
-            <!-- No Messages -->
-
-            <div
-                v-else-if="messages.length === 0"
-                class="no-messages"
-            >
-                No messages yet.
-                Start the conversation!
-            </div>
-
-
-            <!-- Messages -->
-
-            <div
-                v-for="message in messages"
-                :key="message.id"
-                :class="[
-                    'message',
-                    message.user_id === currentUserId
-                        ? 'message-own'
-                        : 'message-other'
-                ]"
-            >
-
-                <div class="message-bubble">
-
-                    <!-- User -->
-
-                    <div class="message-user">
-
-                        {{
-                            message.user?.name
-                                || 'Unknown'
-                        }}
-
-                    </div>
-
-
-                    <!-- Message -->
-
-                    <div class="message-text">
-
-                        {{ message.message }}
-
-                    </div>
-
-
-                    <!-- Time -->
-
-                    <small class="message-time">
-
-                        {{
-                            new Date(
-                                message.created_at
-                            ).toLocaleTimeString(
-                                [],
-                                {
-                                    hour: '2-digit',
-                                    minute: '2-digit'
-                                }
-                            )
-                        }}
-
-                    </small>
-
-                </div>
-
-            </div>
-
-        </div>
-
-
-        <!-- --------------------------------------- -->
-        <!-- Input -->
-        <!-- --------------------------------------- -->
-
-        <form
-            class="message-input"
-            @submit.prevent="sendMessage"
-        >
-
-            <input
-                v-model="newMessage"
-                type="text"
-                placeholder="Type a message..."
-                autocomplete="off"
-            />
-
-
-            <button
-                type="submit"
-                :disabled="!newMessage.trim()"
-            >
-                Send
-            </button>
-
-        </form>
-
+      <div>
+        <strong>
+          {{ conversation.display_name || 'Chat' }}
+        </strong>
+      </div>
     </div>
 
+    <div ref="messagesContainer" class="messages">
+      <div v-if="loading" class="loading">Loading messages...</div>
+
+      <div v-else-if="messages.length === 0" class="no-messages">
+        No messages yet. Start the conversation!
+      </div>
+
+      <div
+        v-for="message in messages"
+        :key="message.id"
+        :class="[
+          'message',
+          message.sender?.id === currentUserId ? 'message-own' : 'message-other'
+        ]"
+      >
+        <div class="message-bubble">
+          <div class="message-user">
+            {{ message.sender?.name || 'Unknown' }}
+          </div>
+
+          <div class="message-text">
+            {{ message.text }}
+          </div>
+
+          <small class="message-time">
+            {{
+              new Date(message.created_at).toLocaleTimeString([], {
+                hour: '2-digit',
+                minute: '2-digit'
+              })
+            }}
+          </small>
+        </div>
+      </div>
+    </div>
+
+    <form class="message-input" @submit.prevent="sendMessage">
+      <input
+        v-model="newMessage"
+        type="text"
+        placeholder="Type a message..."
+        autocomplete="off"
+      />
+      <button type="submit" :disabled="!newMessage.trim()">Send</button>
+    </form>
+  </div>
 </template>
