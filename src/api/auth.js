@@ -7,7 +7,9 @@ export default {
     },
 
     async login(data) {
-        const response = await api.post('/login', data);
+        const response = await api.post('/login', data, {
+            skipAuthRedirect: true
+        });
         return response.data;
     },
 

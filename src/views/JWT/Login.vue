@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-import authApi from '../api/auth';
+import authApi from '../../api/auth';
 
 const router = useRouter();
 
@@ -26,11 +26,15 @@ const login = async() => {
             login: email.value,
             password: password.value
         });
-
-        localStorage.setItem('token', response.token);
-        localStorage.setItem('user', JSON.stringify(response.user));
-
-        router.push('/chat');
+        
+        if(response.success){
+            localStorage.setItem('token', response.data.token);
+            localStorage.setItem('user', JSON.stringify(response.data.user));
+    
+            router.push('/chat');
+        }else{
+            error.value = 'Something went wrong';
+        }
     }catch(err){
         if(err.response?.status === 401){
             error.value = 'Invalid email or password.';

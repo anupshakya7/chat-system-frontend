@@ -1,7 +1,7 @@
 <script setup>
 import { ref } from 'vue';
 import { useRouter } from 'vue-router';
-import authApi from '../api/auth';
+import authApi from '../../api/auth';
 
 const router = useRouter();
 
@@ -38,11 +38,16 @@ const register = async() => {
             password_confirmation: passwordConfirmation.value
         });
         
-        localStorage.setItem('token', response.token);
-        localStorage.setItem('user', JSON.stringify(response.user));
-        localStorage.setItem('user_id', response.user.id);
+        if(response.success){
+            router.push('/login');
+        }else{
+            error.value = 'Something went wrong';
+        }
+        // localStorage.setItem('token', response.token);
+        // localStorage.setItem('user', JSON.stringify(response.user));
+        // localStorage.setItem('user_id', response.user.id);
 
-        router.push('/chat');
+        
     }catch(err){
         const errors = err.response?.data?.errors;
 
