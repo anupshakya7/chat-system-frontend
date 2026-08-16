@@ -8,8 +8,6 @@ import echo from '../../services/echo';
 
 const router = useRouter()
 
-const emit = defineEmits(['select'])
-
 const conversations = ref([])
 const loading = ref(false)
 const loggingOut = ref(false)
@@ -18,7 +16,13 @@ const users = ref([])
 const userSearch = ref('')
 const usersLoading = ref(false)
 
-const subscriptions = new Map();
+const props = defineProps({
+  activeConversationId: {
+    type: [Number, String],
+    default: null
+  }
+});
+const emit = defineEmits(['select'])
 
 const getCurrentUser = () => {
   const storedUser = localStorage.getItem('user');
@@ -35,6 +39,79 @@ const getCurrentUser = () => {
   }
 }
 const currentUser = getCurrentUser();
+
+let userChannel = null;
+
+const subscribeToUserChannel = () => {
+  const channelName = `student.${currentUser.id}`;
+
+  if (!channelName) {
+     return;
+  }
+
+  console.log(`Subscribing to ${channelName}`);
+  userChannel = echo.private(channelName);
+  userChannel.listen('.MessageSent', event => {
+    console.log(`Realtime message received on ${channelName}:`, event);
+    updateConversationFromMessage(event);
+  });
+
+  userChannel.subscribed(() => {
+    console.log(`Successfully subscribed to ${channelName}`);
+  })
+}
+
+const updateConversationFromMessage = (message) => {
+    const conversationId = message.conversation_id;
+
+    if (!conversationId) {
+        return;
+    }
+
+    const index = conversations.value.findIndex(
+        conversation => conversation.id === conversationId
+    );
+
+    if (index === -1) {
+        console.log('Conversation not found:', conversationId);
+        return;
+    }
+
+    const conversation = conversations.value[index];
+    const isOwnMessage = String(message.sender?.id) === String(currentUser?.id);
+    const isActive = String(props.activeConversationId) === String(conversationId);
+
+    const unreadCount = isActive || isOwnMessage
+            ? (conversation.unread_count || 0)
+            : (conversation.unread_count || 0) + 1;
+
+    const updatedConversation = {
+        ...conversation,
+        last_message: message,
+        updated_at: message.created_at || new Date().toISOString(),
+        unread_count: unreadCount
+    };
+
+    conversations.value.splice(
+        index,
+        1
+    );
+
+    conversations.value.unshift(
+        updatedConversation
+    );
+};
+
+const unsubscribeFromUserChannel = () => {
+  const channelName = `student.${currentUser.id}`;
+
+  if(!channelName){
+    return;
+  }
+
+  console.log(`Leaving ${channelName}`);
+  userChannel = null;
+}
 
 const loadUsers = async () => {
   usersLoading.value = true
@@ -56,32 +133,12 @@ const loadConversations = async () => {
     const response = await chatApi.getConversations()
     conversations.value = response.data
 
-    subscribeToAllConversations();
+    subscribeToUserChannel();
   } catch (error) {
     console.error('Failed to load conversations', error)
   } finally {
     loading.value = false
   }
-}
-
-const subscribeToAllConversations = () => {
-  if(!conversations.value.length) return;
-
-  conversations.value.forEach(conversation => {
-    subscribeToConversation(conversation.id)
-  });
-}
-
-const subscribeToConversation = (conversationId) => {
-  if(subscriptions.has(conversationId)) return;
-
-  console.log(`Subscribing to conversation ${conversationId} for chat list`);
-  const channel = echo.private(`conversation.${conversationId}`);
-  channel.listen('.MessageSent', (event) => {
-      console.log(`New message in conversation ${conversationId}:`, event);
-      updateConversationLastMessage(conversationId, event.message || event);
-  });
-  subscriptions.set(conversationId, channel);
 }
 
 const updateConversationLastMessage = (conversationId, message) => {
@@ -99,13 +156,6 @@ const updateConversationLastMessage = (conversationId, message) => {
   conversations.value.unshift(updatedConversation);
 }
 
-const unsubscribeFromAllConversations = () => {
-  for(const [conversationId, channel] of subscriptions){
-    echo.leave(`conversation.${conversationId}`);
-    subscriptions.delete(conversationId);
-  }
-}
-
 const startChat = async user => {
   try {
     const response = await chatApi.createConversation(user.id)
@@ -117,7 +167,6 @@ const startChat = async user => {
     const exists = conversations.value.some(item => item.id === conversation.id);
     if (!exists) {
       conversations.value.unshift(conversation)
-      subscribeToConversation(conversation.id)
     }
     console.log('New Conversation: ',conversations.value);
     emit('select', conversation)
@@ -147,11 +196,11 @@ const logout = async () => {
 }
 
 onMounted(() => {
-  loadConversations()
+  loadConversations();
 })
 
 onBeforeUnmount(() => {
-  unsubscribeFromAllConversations()
+  unsubscribeFromUserChannel();
 })
 </script>
 <template>
@@ -195,15 +244,23 @@ onBeforeUnmount(() => {
       </div>
 
       <div class="conversation-info">
-        <strong>
-          {{ conversation.display_name || 'Unknown' }}
-        </strong>
-        <p>
-          {{ conversation.last_message?.text || 'No Messages' }}
-        </p>
-        <small v-if="conversation.last_message" class="message-time">
-          {{ new Date(conversation.last_message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
-        </small>
+        <div class="conversation-top">
+          <strong>
+            {{ conversation.display_name || 'Unknown' }}
+          </strong>
+          <small v-if="conversation.last_message" class="message-time">
+            {{ new Date(conversation.last_message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
+          </small>
+        </div>
+        <div class="conversation-bottom">
+          <p>
+            {{ conversation.last_message?.text || 'No Messages' }}
+          </p>
+          <span v-if="conversation.unread_count > 0" class="unread-count">
+            {{ conversation.unread_count }}
+          </span>
+        </div>
+        
       </div>
     </div>
   </div>

@@ -14,19 +14,12 @@ const echo = new Echo({
         import.meta.env.VITE_REVERB_PORT || 8080
     ),
     forceTLS: import.meta.env.VITE_REVERB_SCHEME === "https",
-    enabledTransports: ['ws'],
-    authEndpoint: "http://127.0.0.1:8000/broadcasting/auth",
-    auth: {
-        headers: {
-            Authorization: `Bearer ${localStorage.getItem('token')}`,
-            Accept: 'application/json'
-        }
-    },
+    enabledTransports: ['ws', 'wss'],
     authorizer: (channel) => {
         return {
             authorize: (socketId, callback) => {
                 const token = localStorage.getItem('token');
-                fetch('http://127.0.0.1:8000/broadcasting/auth',{
+                fetch(`${import.meta.env.VITE_BROADCAST_AUTH_URL}`,{
                     method: "POST",
                     headers: {
                         "Content-Type": "application/json",

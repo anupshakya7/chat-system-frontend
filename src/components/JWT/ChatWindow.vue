@@ -14,7 +14,10 @@ const props = defineProps({
     required: true
   }
 })
-const emit = defineEmits('conversationRead', 'newMessage');
+const emit = defineEmits([
+  'conversationRead',
+  'newMessage'
+]);
 
 const messages = ref([])
 const loading = ref(false)
@@ -111,15 +114,15 @@ const subscribeToConversation = () => {
 
     messages.value.push(incomingMessage)
 
-    if(incomingMessage.sender?.id !== currentUserId){
-        unreadCount.value += 1;
+    // if(incomingMessage.sender?.id !== currentUserId){
+    //     unreadCount.value += 1;
         
-        emit('newMessage', {
-            conversationId: conversationId,
-            message: incomingMessage,
-            unreadCount: unreadCount.value
-        });
-    }
+    //     emit('newMessage', {
+    //         conversationId: conversationId,
+    //         message: incomingMessage,
+    //         unreadCount: unreadCount.value
+    //     });
+    // }
 
     nextTick(() => {
       scrollToBottom()
@@ -206,10 +209,9 @@ watch(
       return
     }
 
+    subscribeToConversation()
     await loadMessages()
     await markConversationAsRead()
-
-    subscribeToConversation()
   },
 
   {
