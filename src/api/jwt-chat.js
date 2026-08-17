@@ -41,6 +41,11 @@ export default {
         return response.data;
     },
 
+    async markAsDelivered(conversationId, replyId){
+        const response = await api.post(`student/chat/conversations/${conversationId}/replies/${replyId}/mark-delivered`);
+        return response.data;
+    },
+
     async markAsRead(conversationId) {
         const response = await api.post(`/student/chat/conversations/${conversationId}/mark-read`);
         return response.data;

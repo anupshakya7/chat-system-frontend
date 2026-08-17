@@ -1,5 +1,5 @@
 <script setup>
-import { ref, watch, nextTick, onBeforeUnmount } from 'vue'
+import { ref, watch, nextTick, onBeforeUnmount, computed } from 'vue'
 
 import echo from '../../services/echo'
 import chatApi from '../../api/jwt-chat'
@@ -24,7 +24,9 @@ const loading = ref(false)
 const newMessage = ref('')
 const messagesContainer = ref(null)
 
-const unreadCount = ref(props.conversation?.unread_count || 0);
+
+const unreadCount = ref(props.conversation.unread_count || 0);
+console.log('unread count: ',unreadCount);
 
 const storedUser = localStorage.getItem('user')
 const currentUser = storedUser ? JSON.parse(storedUser) : null
@@ -42,7 +44,7 @@ const loadMessages = async () => {
 
   try {
     const response = await chatApi.getMessages(props.conversation.id)
-    messages.value = (response.data.data || []).reverse()
+    messages.value = (response.data || []).reverse()
 
     await nextTick()
     scrollToBottom()
@@ -57,7 +59,7 @@ const markConversationAsRead = async () => {
   if (!props.conversation?.id) {
     return
   }
-
+  console.log(unreadCount.value);
   if(unreadCount.value === 0){
     console.log('No unread messages to mar as read');
     return;
@@ -95,43 +97,104 @@ const subscribeToConversation = () => {
   currentChannel = echo.private(`conversation.${conversationId}`)
   subscribedConversationId = conversationId
 
-  currentChannel.listen('.MessageSent', event => {
-    console.log('Realtime message received:', event)
+  // currentChannel.listen('.MessageSent', event => {
+  //   console.log('Realtime message received:', event)
 
-    const incomingMessage = event
+  //   const incomingMessage = event
 
-    if (!incomingMessage) {
-      return
+  //   if (!incomingMessage) {
+  //     return
+  //   }
+
+  //   const alreadyExists = messages.value.some(
+  //     message => message.id === incomingMessage.id
+  //   )
+
+  //   if (alreadyExists) {
+  //     return
+  //   }
+
+  //   messages.value.push(incomingMessage)
+
+  //   // if(incomingMessage.sender?.id !== currentUserId){
+  //   //     unreadCount.value += 1;
+        
+  //   //     emit('newMessage', {
+  //   //         conversationId: conversationId,
+  //   //         message: incomingMessage,
+  //   //         unreadCount: unreadCount.value
+  //   //     });
+  //   // }
+
+  //   nextTick(() => {
+  //     scrollToBottom()
+  //   })
+  // })
+
+  currentChannel.listen('.MessageSent', async event => {
+    console.log(`Realtime message received for ${currentChannel} channel: ${event}`);
+
+    const incomingMessage = event;
+
+    if(!incomingMessage){
+      return;
     }
 
     const alreadyExists = messages.value.some(
       message => message.id === incomingMessage.id
     )
 
-    if (alreadyExists) {
+    if(!alreadyExists){
+      messages.value.push(incomingMessage);
+
+      await nextTick();
+      scrollToBottom();
+    }
+
+    if(String(incomingMessage.sender?.id) !== String(currentUserId)){
+      try{
+        console.log('testing');
+        await chatApi.markAsRead(props.conversation.id);
+        unreadCount.value = 0;
+      }catch(error){
+        console.error('Failed to mark message read: ', error);
+      }
+    }
+  });
+  
+  currentChannel.listen('.MessageDelivered', event => {
+    console.log('Message delivered:',event);
+    const deliveredMessage = event.message;
+    const message = messages.value.find(
+      message => message.id === deliveredMessage.id
+    );
+
+    if(!message){
+      return;
+    }
+
+    message.delivered_at = deliveredMessage.delivered_at
+  });
+
+  currentChannel.listen('.MessageRead', event => {
+    console.log('Message read: ', event);
+    const readMessage = event.message;
+
+    const message = messages.value.find(
+      message => String(message.id) === String(readMessage.id)
+    )
+
+    if(!message){
       return
     }
 
-    messages.value.push(incomingMessage)
+    message.delivered_at = readMessage.delivered_at;
+    message.read_at = readMessage.read_at;
+  });
 
-    // if(incomingMessage.sender?.id !== currentUserId){
-    //     unreadCount.value += 1;
-        
-    //     emit('newMessage', {
-    //         conversationId: conversationId,
-    //         message: incomingMessage,
-    //         unreadCount: unreadCount.value
-    //     });
-    // }
-
-    nextTick(() => {
-      scrollToBottom()
-    })
-  })
-  
   currentChannel.subscribed(() => {
     console.log(`Successfully subscribed to conversation.${conversationId}`)
-  })
+  });
 }
 
 const unsubscribeFromConversation = () => {

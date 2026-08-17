@@ -51,9 +51,28 @@ const subscribeToUserChannel = () => {
 
   console.log(`Subscribing to ${channelName}`);
   userChannel = echo.private(channelName);
-  userChannel.listen('.MessageSent', event => {
+  userChannel.listen('.MessageSent', async event => {
     console.log(`Realtime message received on ${channelName}:`, event);
+    const message = event;
+
+    if(!message?.id || !message?.conversation_id){
+      return;
+    }
+
     updateConversationFromMessage(event);
+
+    const isOwnMessage = String(message.sender?.id) === String(currentUser?.id);
+
+    if(isOwnMessage){
+      return;
+    }
+
+    try{
+      await chatApi.markAsDelivered(message.conversation_id, message.id);
+      console.log(`Message ${message.id} marked as delivered`);
+    }catch(error){
+      console.error(`Failed to mark message ${message.id} as delivered:`, error);
+    }
   });
 
   userChannel.subscribed(() => {
@@ -103,6 +122,10 @@ const updateConversationFromMessage = (message) => {
 };
 
 const unsubscribeFromUserChannel = () => {
+  if(!currentUser?.id){
+    return;
+  }
+
   const channelName = `student.${currentUser.id}`;
 
   if(!channelName){
@@ -110,6 +133,7 @@ const unsubscribeFromUserChannel = () => {
   }
 
   console.log(`Leaving ${channelName}`);
+  echo.leave(channelName);
   userChannel = null;
 }
 
@@ -170,6 +194,7 @@ const startChat = async user => {
     }
     console.log('New Conversation: ',conversations.value);
     emit('select', conversation)
+    
   } catch (error) {
     console.error('Failed to create conversation', error)
   }
