@@ -1,16 +1,31 @@
 <script setup>
-import { ref } from 'vue';
+import { ref, onMounted, onBeforeUnmount } from 'vue';
 import { useRouter } from 'vue-router';
 import ChatList from '../../components/JWT/ChatList.vue';
 import ChatWindow from '../../components/JWT/ChatWindow.vue';
 import authApi from '../../api/auth';
+import { usePresence } from '../../composables/usePresence.js';
 
 const router = useRouter();
 const selectedConversation = ref(null);
 
+const { initializePresence, leavePresence } = usePresence();
+
 const selectConversation = (conversation) => {
     selectedConversation.value = conversation;
 };
+
+onMounted(() => {
+    console.log('Chat page mounted');
+    console.log('Calling initializePresence...');
+    initializePresence();
+    console.log('initializePresence called')
+});
+
+onBeforeUnmount(() => {
+    console.log('Chat page unmounted');
+    leavePresence();
+});
 
 const logout = async() => {
     try{
@@ -18,6 +33,8 @@ const logout = async() => {
     }catch(error){
         console.error(error);
     }finally{
+        leavePresence();
+
         localStorage.removeItem('token');
         localStorage.removeItem('user');
         localStorage.removeItem('user_id');

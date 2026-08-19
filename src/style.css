@@ -1136,3 +1136,38 @@ body {
         background: #6b7280;
     }
 }
+
+.avatar-wrapper {
+  position: relative;
+  flex-shrink: 0;
+}
+
+.online-dot {
+  position: absolute;
+  right: 0;
+  bottom: 0;
+
+  width: 10px;
+  height: 10px;
+
+  background: #22c55e;
+
+  border: 2px solid white;
+
+  border-radius: 50%;
+}
+
+.conversation-name {
+  display: flex;
+  flex-direction: column;
+}
+
+.online-status {
+  font-size: 12px;
+  color: #22c55e;
+}
+
+.offline-status {
+  font-size: 12px;
+  color: #9ca3af;
+}

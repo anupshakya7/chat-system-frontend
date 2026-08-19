@@ -1,6 +1,7 @@
 <script setup>
 import { ref, onMounted, onBeforeUnmount } from 'vue'
 import { useRouter } from 'vue-router'
+import { usePresence } from '../../composables/usePresence.js'
 
 import chatApi from '../../api/jwt-chat.js'
 import authApi from '../../api/auth'
@@ -15,6 +16,8 @@ const showUsers = ref(false)
 const users = ref([])
 const userSearch = ref('')
 const usersLoading = ref(false)
+
+const { isOnline } = usePresence();
 
 const props = defineProps({
   activeConversationId: {
@@ -154,7 +157,8 @@ const loadConversations = async () => {
   loading.value = true
 
   try {
-    const response = await chatApi.getConversations()
+    const response = await chatApi.getConversations();
+    console.log('Conversations: ', response.data);
     conversations.value = response.data
 
     subscribeToUserChannel();
@@ -264,15 +268,35 @@ onBeforeUnmount(() => {
       class="conversation"
       @click="selectConversation(conversation)"
     >
-      <div class="avatar">
-        {{ conversation.display_name?.charAt(0)?.toUpperCase() || '?' }}
+      <div class="avatar-wrapper">
+        <div class="avatar">
+          {{ conversation.display_name?.charAt(0)?.toUpperCase() || '?' }}
+        </div>
+        <span v-if="isOnline(conversation.participant_id, 'admin')" class="online-dot">
+        </span>
       </div>
 
       <div class="conversation-info">
         <div class="conversation-top">
-          <strong>
-            {{ conversation.display_name || 'Unknown' }}
-          </strong>
+          <div class="conversation-name">
+            <strong>
+              {{ conversation.display_name || 'Unknown' }}
+            </strong>
+            <span v-if="
+                isOnline(
+                  conversation.participant_id,
+                  'admin'
+                )
+              "
+              class="online-status"
+            >
+              Online
+            </span>
+
+            <span v-else class="offline-status">
+              Offline
+            </span>
+          </div>
           <small v-if="conversation.last_message" class="message-time">
             {{ new Date(conversation.last_message.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) }}
           </small>
@@ -323,9 +347,20 @@ onBeforeUnmount(() => {
           class="user-item"
           @click="startChat(user)"
         >
+        <div class="avatar-wrapper">
           <div class="avatar">
             {{ user.fullname?.charAt(0)?.toUpperCase() }}
           </div>
+          <span
+            v-if="
+              isOnline(
+                user.id,
+                'admin'
+              )
+            "
+            class="online-dot"
+          ></span>
+        </div>
 
           <div class="user-info">
             <strong>
@@ -335,6 +370,25 @@ onBeforeUnmount(() => {
             <span>
               {{ user.email }}
             </span>
+
+            <small
+              v-if="
+                isOnline(
+                  user.id,
+                  'admin'
+                )
+              "
+              class="online-status"
+            >
+              Online
+            </small>
+
+            <small
+              v-else
+              class="offline-status"
+            >
+              Offline
+            </small>
           </div>
         </div>
       </div>

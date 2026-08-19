@@ -14,7 +14,7 @@ const props = defineProps({
     required: true
   }
 })
-const emit = defineEmits('conversationRead', 'newMessage');
+const emit = defineEmits(['conversationRead', 'newMessage']);
 
 const messages = ref([])
 const loading = ref(false)
@@ -77,6 +77,7 @@ const markConversationAsRead = async () => {
 }
 
 const subscribeToConversation = () => {
+  console.log('conversation id:', props.conversation?.id);
   if (!props.conversation?.id) {
     return
   }

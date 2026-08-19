@@ -19,6 +19,13 @@ const echo = new Echo({
         return {
             authorize: (socketId, callback) => {
                 const token = localStorage.getItem('token');
+
+                if(!token){
+                    console.error('Broadcast auth failed: token not found');
+                    callback(true, new Error("Authentication token not found"));
+                    return;
+                }
+
                 fetch(`${import.meta.env.VITE_BROADCAST_AUTH_URL}`,{
                     method: "POST",
                     headers: {
@@ -41,11 +48,13 @@ const echo = new Echo({
                     return data;
                 })
                 .then(data => {
+                    console.log("Broadcast authorized:", channel.name);
                     callback(false, data);
                 })
                 .catch(error => {
+                    console.error("Broadcast auth error: ", channel.name, error);
                     console.error("Broadcast auth error:", error);
-                    callback(false, error);
+                    callback(true, error);
                 })
             }
         }
